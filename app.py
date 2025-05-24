@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import pandas as pd
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -12,48 +13,58 @@ from io import BytesIO
 # إعداد الصفحة
 st.set_page_config(page_title="PDF Watermarker by Alomari")
 st.title("🎓 PDF Watermarker by Alomari")
-st.markdown("قم برفع ملف PDF، ثم أدخل اسم الطالب لإضافة علامة مائية.")
+st.markdown("ارفع ملف PDF الأساسي، وملف Excel يحتوي على أسماء الطلاب، وسينشئ التطبيق ملفات PDF مخصصة لكل طالب.")
 
 # تحميل الخط
 FONT_PATH = "Cairo-Regular.ttf"
 pdfmetrics.registerFont(TTFont("Cairo", FONT_PATH))
 
-def create_watermark(student_name: str) -> BytesIO:
+def create_watermark_page(text, font_size=14, spacing=200, rotation=35, alpha=0.08):
     packet = BytesIO()
-    can = canvas.Canvas(packet, pagesize=letter)
-    can.setFont("Cairo", 24)
-    can.saveState()
-    can.translate(10 * cm, 15 * cm)
-    can.rotate(30)
-    can.drawCentredString(0, 0, student_name)
-    can.restoreState()
-    can.save()
+    c = canvas.Canvas(packet, pagesize=letter)
+    c.setFont("Cairo", font_size)
+    c.setFillAlpha(alpha)
+    width, height = letter
+    for x in range(0, int(width), spacing):
+        for y in range(0, int(height), spacing):
+            c.saveState()
+            c.translate(x, y)
+            c.rotate(rotation)
+            c.drawString(0, 0, f"خاص بـ {text}")
+            c.restoreState()
+    c.save()
     packet.seek(0)
-    return packet
+    return PdfReader(packet).pages[0]
 
-def add_watermark(input_pdf, student_name):
-    reader = PdfReader(input_pdf)
-    writer = PdfWriter()
-    watermark_stream = create_watermark(student_name)
-    watermark_pdf = PdfReader(watermark_stream)
-    watermark_page = watermark_pdf.pages[0]
+def generate_pdfs(base_pdf, excel_file):
+    df = pd.read_excel(excel_file)
+    student_names = df.iloc[:, 0].dropna().tolist()
+    output_files = []
 
-    for page in reader.pages:
-        page.merge_page(watermark_page)
-        writer.add_page(page)
+    reader = PdfReader(base_pdf)
+    for name in student_names:
+        writer = PdfWriter()
+        watermark_page = create_watermark_page(name)
+        for page in reader.pages:
+            page.merge_page(watermark_page)
+            writer.add_page(page)
 
-    temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    with open(temp_output.name, "wb") as f_out:
-        writer.write(f_out)
-    return temp_output.name
+        temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{name}.pdf")
+        with open(temp_output.name, "wb") as f_out:
+            writer.write(f_out)
+        output_files.append((name, temp_output.name))
 
-uploaded_file = st.file_uploader("📄 ارفع ملف PDF", type=["pdf"])
-student_name = st.text_input("✍️ اسم الطالب (عربي أو إنجليزي)")
+    return output_files
 
-if uploaded_file and student_name:
-    if st.button("🚀 إنشاء PDF بعلامة مائية"):
+# الواجهة
+pdf_file = st.file_uploader("📄 ارفع ملف PDF الأساسي", type=["pdf"])
+excel_file = st.file_uploader("📋 ارفع ملف Excel يحتوي على الأسماء", type=["xlsx"])
+
+if pdf_file and excel_file:
+    if st.button("🚀 إنشاء ملفات PDF للطلاب"):
         with st.spinner("جاري المعالجة..."):
-            watermarked_path = add_watermark(uploaded_file, student_name)
-            with open(watermarked_path, "rb") as file:
-                st.download_button("📥 تحميل الملف المعدل", file.read(), file_name=f"{student_name}.pdf")
-            os.remove(watermarked_path)
+            results = generate_pdfs(pdf_file, excel_file)
+            for name, file_path in results:
+                with open(file_path, "rb") as file:
+                    st.download_button(f"📥 تحميل ملف: {name}", file.read(), file_name=f"{name}.pdf")
+                os.remove(file_path)
