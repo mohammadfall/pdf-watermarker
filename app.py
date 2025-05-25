@@ -1,6 +1,7 @@
 import streamlit as st
 import tempfile
 import os
+import shutil
 import pandas as pd
 from PyPDF2 import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
@@ -9,11 +10,12 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
 from io import BytesIO
+from zipfile import ZipFile
 
 # إعداد الصفحة
 st.set_page_config(page_title="PDF Watermarker by Alomari")
 st.title("🎓 PDF Watermarker by Alomari")
-st.markdown("ارفع ملف PDF الأساسي، وملف Excel يحتوي على أسماء الطلاب، وسينشئ التطبيق ملفات PDF مخصصة لكل طالب.")
+st.markdown("ارفع ملف PDF الأساسي، وملف Excel يحتوي على أسماء الطلاب، وسينشئ التطبيق ملفات PDF مخصصة لكل طالب داخل مجلد مضغوط واحد.")
 
 # تحميل الخط
 FONT_PATH = "Cairo-Regular.ttf"
@@ -36,12 +38,15 @@ def create_watermark_page(text, font_size=14, spacing=200, rotation=35, alpha=0.
     packet.seek(0)
     return PdfReader(packet).pages[0]
 
-def generate_pdfs(base_pdf, excel_file):
+def generate_zip(base_pdf, excel_file):
     df = pd.read_excel(excel_file)
     student_names = df.iloc[:, 0].dropna().tolist()
-    output_files = []
-
     reader = PdfReader(base_pdf)
+
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "watermarked_students.zip")
+    pdf_paths = []
+
     for name in student_names:
         writer = PdfWriter()
         watermark_page = create_watermark_page(name)
@@ -49,22 +54,25 @@ def generate_pdfs(base_pdf, excel_file):
             page.merge_page(watermark_page)
             writer.add_page(page)
 
-        temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{name}.pdf")
-        with open(temp_output.name, "wb") as f_out:
+        safe_name = name.replace(" ", "_").replace("+", "plus")
+        pdf_path = os.path.join(temp_dir, f"{safe_name}.pdf")
+        with open(pdf_path, "wb") as f_out:
             writer.write(f_out)
-        output_files.append((name, temp_output.name))
+        pdf_paths.append(pdf_path)
 
-    return output_files
+    with ZipFile(zip_path, "w") as zipf:
+        for file_path in pdf_paths:
+            zipf.write(file_path, arcname=os.path.basename(file_path))
+
+    return zip_path
 
 # الواجهة
 pdf_file = st.file_uploader("📄 ارفع ملف PDF الأساسي", type=["pdf"])
 excel_file = st.file_uploader("📋 ارفع ملف Excel يحتوي على الأسماء", type=["xlsx"])
 
 if pdf_file and excel_file:
-    if st.button("🚀 إنشاء ملفات PDF للطلاب"):
+    if st.button("🚀 إنشاء مجلد مضغوط للطلاب"):
         with st.spinner("جاري المعالجة..."):
-            results = generate_pdfs(pdf_file, excel_file)
-            for name, file_path in results:
-                with open(file_path, "rb") as file:
-                    st.download_button(f"📥 تحميل ملف: {name}", file.read(), file_name=f"{name}.pdf")
-                os.remove(file_path)
+            zip_file_path = generate_zip(pdf_file, excel_file)
+            with open(zip_file_path, "rb") as zip_file:
+                st.download_button("📦 تحميل الملفات جميعها (ZIP)", zip_file.read(), file_name="watermarked_students.zip")
