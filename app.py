@@ -15,7 +15,7 @@ from zipfile import ZipFile
 # إعداد الصفحة
 st.set_page_config(page_title="PDF Watermarker by Alomari")
 st.title("🎓 PDF Watermarker by Alomari")
-st.markdown("ارفع ملف PDF الأساسي، وملف Excel يحتوي على أسماء الطلاب، وسينشئ التطبيق ملفات PDF مخصصة لكل طالب داخل مجلد مضغوط واحد.")
+st.markdown("ارفع ملف PDF وملف Excel يحتوي على أسماء الطلاب، وسيتم إنشاء ملفات PDF مخصصة داخل مجلد مضغوط.")
 
 # تحميل الخط
 FONT_PATH = "Cairo-Regular.ttf"
@@ -40,7 +40,8 @@ def create_watermark_page(text, font_size=14, spacing=200, rotation=35, alpha=0.
 
 def generate_zip(base_pdf, excel_file):
     df = pd.read_excel(excel_file)
-    student_names = df.iloc[:, 0].dropna().tolist()
+    col = df.columns[0]
+    student_names = df[col].dropna().astype(str).tolist()
     reader = PdfReader(base_pdf)
 
     temp_dir = tempfile.mkdtemp()
@@ -48,11 +49,13 @@ def generate_zip(base_pdf, excel_file):
     pdf_paths = []
 
     for name in student_names:
+        st.write(f"⬇️ جاري إنشاء الملف للطالب: {name}")
         writer = PdfWriter()
         watermark_page = create_watermark_page(name)
         for page in reader.pages:
-            page.merge_page(watermark_page)
-            writer.add_page(page)
+            new_page = page.copy()
+            new_page.merge_page(watermark_page)
+            writer.add_page(new_page)
 
         safe_name = name.replace(" ", "_").replace("+", "plus")
         pdf_path = os.path.join(temp_dir, f"{safe_name}.pdf")
@@ -66,13 +69,13 @@ def generate_zip(base_pdf, excel_file):
 
     return zip_path
 
-# الواجهة
+# واجهة التطبيق
 pdf_file = st.file_uploader("📄 ارفع ملف PDF الأساسي", type=["pdf"])
 excel_file = st.file_uploader("📋 ارفع ملف Excel يحتوي على الأسماء", type=["xlsx"])
 
 if pdf_file and excel_file:
     if st.button("🚀 إنشاء مجلد مضغوط للطلاب"):
-        with st.spinner("جاري المعالجة..."):
+        with st.spinner("⏳ جاري المعالجة..."):
             zip_file_path = generate_zip(pdf_file, excel_file)
             with open(zip_file_path, "rb") as zip_file:
                 st.download_button("📦 تحميل الملفات جميعها (ZIP)", zip_file.read(), file_name="watermarked_students.zip")
