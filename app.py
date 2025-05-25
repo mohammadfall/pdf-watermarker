@@ -32,6 +32,8 @@ creds = service_account.Credentials.from_service_account_info(
 )
 drive_service = build("drive", "v3", credentials=creds)
 
+password_log = []
+
 def upload_to_drive(filename, filepath):
     file_metadata = {"name": filename, "parents": [FOLDER_ID]}
     media = MediaFileUpload(filepath, mimetype="application/pdf")
@@ -79,7 +81,6 @@ def generate_and_upload(base_pdf, excel_file):
             page.merge_page(watermark_page)
             writer.add_page(page)
 
-        # Save watermarked file temporarily
         safe_name = name.replace(" ", "_")
         raw_path = os.path.join(tempfile.gettempdir(), f"{safe_name}_raw.pdf")
         protected_path = os.path.join(tempfile.gettempdir(), f"{safe_name}_protected.pdf")
@@ -87,12 +88,45 @@ def generate_and_upload(base_pdf, excel_file):
         with open(raw_path, "wb") as f_out:
             writer.write(f_out)
 
-        # Generate password and apply protection
         password = name.replace(" ", "") + "@alomari"
         apply_pdf_protection(raw_path, protected_path, password)
-
-        # Upload protected file
         upload_to_drive(f"{name}.pdf", protected_path)
+        password_log.append({"Student Name": name, "Password": password, "Status": "✅ تم الرفع"})
+
+def generate_and_zip(base_pdf, excel_file):
+    df = pd.read_excel(excel_file)
+    names = df[df.columns[0]].dropna().astype(str).tolist()
+    base_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    base_temp.write(base_pdf.read())
+    base_temp.close()
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "watermarked_students.zip")
+    pdf_paths = []
+
+    for name in names:
+        reader = PdfReader(base_temp.name)
+        writer = PdfWriter()
+        watermark_page = create_watermark_page(name)
+        for page in reader.pages:
+            page.merge_page(watermark_page)
+            writer.add_page(page)
+
+        safe_name = name.replace(" ", "_")
+        raw_path = os.path.join(temp_dir, f"{safe_name}_raw.pdf")
+        protected_path = os.path.join(temp_dir, f"{safe_name}_protected.pdf")
+
+        with open(raw_path, "wb") as f_out:
+            writer.write(f_out)
+
+        password = name.replace(" ", "") + "@alomari"
+        apply_pdf_protection(raw_path, protected_path, password)
+        pdf_paths.append(protected_path)
+        password_log.append({"Student Name": name, "Password": password, "Status": "📦 تم التحميل"})
+
+    with ZipFile(zip_path, "w") as zipf:
+        for file_path in pdf_paths:
+            zipf.write(file_path, arcname=os.path.basename(file_path))
+    return zip_path
 
 st.set_page_config(page_title="Watermarker + Protected Upload")
 st.title("🔐 Watermark & Protect PDF with Password")
@@ -100,9 +134,22 @@ st.markdown("ارفع ملف PDF وExcel يحتوي أسماء الطلبة. ك�
 
 pdf_file = st.file_uploader("📄 ملف PDF الأساسي", type=["pdf"])
 excel_file = st.file_uploader("📋 ملف Excel يحتوي على أسماء الطلاب", type=["xlsx"])
+option = st.radio("اختر طريقة الحصول على الملفات:", ["📦 تحميل مجلد مضغوط (ZIP)", "☁️ رفع إلى Google Drive"])
 
 if pdf_file and excel_file:
     if st.button("🚀 بدء العملية"):
         with st.spinner("⏳ جاري المعالجة..."):
-            generate_and_upload(pdf_file, excel_file)
-            st.success("✅ تم رفع جميع الملفات المحمية إلى Google Drive بنجاح!")
+            if option.startswith("📦"):
+                zip_file_path = generate_and_zip(pdf_file, excel_file)
+                with open(zip_file_path, "rb") as f:
+                    st.download_button("⬇️ تحميل الملفات كمجلد مضغوط", f.read(), file_name="watermarked_students.zip")
+            else:
+                generate_and_upload(pdf_file, excel_file)
+                st.success("✅ تم رفع جميع الملفات المحمية إلى Google Drive بنجاح!")
+
+        # Export password log as Excel
+        df_log = pd.DataFrame(password_log)
+        excel_output = BytesIO()
+        df_log.to_excel(excel_output, index=False)
+        excel_output.seek(0)
+        st.download_button("📥 تحميل جدول كلمات المرور", data=excel_output.read(), file_name="passwords.xlsx")
