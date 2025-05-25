@@ -10,7 +10,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import cm
 from io import BytesIO
 from zipfile import ZipFile
-import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
@@ -26,7 +25,7 @@ pdfmetrics.registerFont(TTFont("Cairo", FONT_PATH))
 
 # Google Drive setup
 FOLDER_ID = "1TUZ_DMdU3e1LDLklCIQOUk-IkI1r1pxN"
-service_info = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+service_info = st.secrets["GOOGLE_SERVICE_ACCOUNT"]
 creds = service_account.Credentials.from_service_account_info(
     service_info,
     scopes=["https://www.googleapis.com/auth/drive"]
