@@ -42,7 +42,11 @@ def generate_zip(base_pdf, excel_file):
     df = pd.read_excel(excel_file)
     col = df.columns[0]
     student_names = df[col].dropna().astype(str).tolist()
-    reader = PdfReader(base_pdf)
+
+    # حفظ الملف الأساسي مؤقتاً لإعادة قراءته داخل اللوب
+    base_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    base_temp.write(base_pdf.read())
+    base_temp.close()
 
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "watermarked_students.zip")
@@ -50,12 +54,13 @@ def generate_zip(base_pdf, excel_file):
 
     for name in student_names:
         st.write(f"⬇️ جاري إنشاء الملف للطالب: {name}")
+        base_reader = PdfReader(base_temp.name)
         writer = PdfWriter()
         watermark_page = create_watermark_page(name)
-        for page in reader.pages:
-            new_page = page.copy()
-            new_page.merge_page(watermark_page)
-            writer.add_page(new_page)
+
+        for page in base_reader.pages:
+            page.merge_page(watermark_page)
+            writer.add_page(page)
 
         safe_name = name.replace(" ", "_").replace("+", "plus")
         pdf_path = os.path.join(temp_dir, f"{safe_name}.pdf")
